@@ -93,7 +93,6 @@ def two_qubit_cumulants(rho_full, singles, H_dense):
     rho_tensor, N = reshape_to_tensor(rho_full)
     lam = {}
     for (i, j) in itertools.combinations(range(N), 2):
-        # trace_out = [q for q in range(N) if q not in (i, j)]
         trace_out = [i, j]
         rho_ij_bar, keep = partial_trace(rho_tensor, trace_out, full_space=True)
         H_ij_bar, N = reshape_to_tensor(rho_ij_bar @ H_dense)
@@ -105,32 +104,33 @@ def two_qubit_cumulants(rho_full, singles, H_dense):
 
     return lam
 
-def embed_pair_with_rest(lam_ij, i, j, singles):
+def embed_pair_with_rest(lam_ij, i, j, singles, verbose=False):
     """
-    Parameters
-    ----------
-    lam_ij  :  4x4 numpy array, two-qubit operator
-    i, j    :  qubit indices (0-based, arbitrary order)
-    singles :  list [rho0,rho1,…] of 2x2 single-qubit density matrices
-
-    Returns
-    -------
-    full_op :  (2^N x 2^N) operator   I⊗…⊗λ_ij⊗…⊗I
+    Return the full (2^N x 2^N) operator that equals
+        λ_{ij}   on qubits i and j
+        rho_k      on every other qubit k.
     """
     if i == j:
-        raise ValueError("i and j must be different qubits")
-    blocks = []
-    for q in range(len(singles)):
-        if q == i:
-            blocks.append(lam_ij)
-        elif q == j:
-            continue
-        else:
-            blocks.append(singles[q])
+        raise ValueError("i and j must differ")
 
-    full_op = reduce(np.kron, blocks)
-    assert np.allclose(np.trace(full_op), 0.0)
-    return full_op
+    N = len(singles)
+
+    lam_t       = lam_ij.reshape(2, 2, 2, 2)
+    
+    operands    = [lam_t] + [singles[q] for q in range(N) if q not in (i, j)]
+
+    lc, uc = list(string.ascii_lowercase), list(string.ascii_uppercase)
+
+    subs = [f"{lc[i]}{lc[j]}{uc[i]}{uc[j]}"]         
+    subs += [f"{lc[q]}{uc[q]}" for q in range(N) if q not in (i, j)]
+
+    rhs  = ''.join(lc[:N] + uc[:N])  
+
+    full_t = np.einsum(','.join(subs) + '->' + rhs, *operands)
+    if verbose:
+        print(f"full_t = np.einsum({','.join(subs) + '->' + rhs}, *operands)")
+
+    return full_t.reshape(2**N, 2**N)
 
 def cluster_expansion_rho(rho_full, H_dense):
     singles, N   = single_site_rhos(rho_full)
@@ -140,6 +140,5 @@ def cluster_expansion_rho(rho_full, H_dense):
     rho_rebuilt  = rho_mf.copy()
     for (i, j), lam_ij in lam_dict.items():
         rho_rebuilt += embed_pair_with_rest(lam_ij, i, j, singles)
-
     return rho_rebuilt, rho_mf 
 
