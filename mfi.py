@@ -86,21 +86,21 @@ def mean_field_state(singles):
     assert np.allclose(np.trace(rho_mf), 1.0)
     return rho_mf
 
-def two_qubit_cumulants(rho_full, singles, H_dense):
+def two_qubit_cumulants(rho_full, singles, verbose=1):
     """
     Returns a dict  lambdas[(i,j)]  = 4x4 matrix  rho_{ij} - rho_i⊗rho_j .
     """
     rho_tensor, N = reshape_to_tensor(rho_full)
     lam = {}
+    indices = set(i for i in range(N))
     for (i, j) in itertools.combinations(range(N), 2):
-        trace_out = [i, j]
-        rho_ij_bar, keep = partial_trace(rho_tensor, trace_out, full_space=True)
-        H_ij_bar, N = reshape_to_tensor(rho_ij_bar @ H_dense)
-        trace_out = keep 
-        H_ij, keep = partial_trace(H_ij_bar, trace_out, full_space=False)
-        rho_ij = diagonalize_and_build_rho(H_ij)
+        trace_out = indices.difference(set([i,j])) 
+        rho_ij, keep = partial_trace(rho_tensor, trace_out, full_space=False)
         lam_ij = rho_ij - np.kron(singles[i], singles[j])
         lam[(i, j)] = lam_ij
+        if verbose:
+            tmp = np.linalg.norm(lam_ij)
+            print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))
 
     return lam
 
@@ -134,7 +134,7 @@ def embed_pair_with_rest(lam_ij, i, j, singles, verbose=False):
 
 def cluster_expansion_rho(rho_full, H_dense):
     singles, N   = single_site_rhos(rho_full)
-    lam_dict     = two_qubit_cumulants(rho_full, singles, H_dense)
+    lam_dict     = two_qubit_cumulants(rho_full, singles)
     rho_mf       = mean_field_state(singles)
 
     rho_rebuilt  = rho_mf.copy()
