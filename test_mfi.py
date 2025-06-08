@@ -28,7 +28,20 @@ print("‖rho_exact - rho_mf‖  = ",np.linalg.norm(rho_exact - rho_mf))
 print(f"Approx. energy from Tr(H@rho_mf) = {(np.trace(H_sparse@rho_mf)).real:.8f} Hartree")
 
 print("‖rho_exact - rho_rebuilt‖  = ",np.linalg.norm(rho_exact - rho_rebuilt))
+fidelity = np.trace(rho_exact @ rho_rebuilt)
+print("(rho_exact | rho_rebuilt)  = %12.8f + %12.8fi" %(np.real(fidelity), np.imag(fidelity)))
 print(f"Approx. energy from Tr(H@rho_rebuilt) = {(np.trace(H_sparse@rho_rebuilt)).real:.8f} Hartree")
+
+print("Eigenvalues of rho:")
+rho_eig_exact = np.linalg.eigvals(rho_exact)
+rho_eig_rebuilt = np.linalg.eigvals(rho_rebuilt)
+print(" %2s %12s %12s" %("", "Exact", "Rebuilt"))
+for i in range(len(rho_eig_exact)):
+    print(" %2i %12.8f %12.8f" %(i, np.real(rho_eig_exact[i]), np.real(rho_eig_rebuilt[i])))
+
+print(" Deviation from Hermiticity  = %12.8f" %np.linalg.norm(rho_rebuilt - rho_rebuilt.conj().T))
+print(" Trace(rho_exact)            = %12.8f" %np.abs(np.trace(rho_exact)))
+print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
 
 """
 Output:
