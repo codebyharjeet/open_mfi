@@ -22,7 +22,10 @@ print(f"Exact energy from Tr(H@rho) = {(np.trace(H_sparse@rho_exact)).real:.8f} 
 
 H_dense = H_sparse.toarray()
 
-rho_rebuilt, rho_mf = cluster_expansion_rho(rho_exact, H_dense)
+C = ClusterExpansion(rho_exact, n_qubits=n_qubits, verbose=0)
+
+rho_mf           = C.mean_field_state()
+rho_rebuilt, _   = C.cluster_expansion_rho()
 
 print("‖rho_exact - rho_mf‖  = ",np.linalg.norm(rho_exact - rho_mf))
 print(f"Approx. energy from Tr(H@rho_mf) = {(np.trace(H_sparse@rho_mf)).real:.8f} Hartree")
@@ -43,14 +46,3 @@ print(" Deviation from Hermiticity  = %12.8f" %np.linalg.norm(rho_rebuilt - rho_
 print(" Trace(rho_exact)            = %12.8f" %np.abs(np.trace(rho_exact)))
 print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
 
-"""
-Output:
-Shape of fermi hubbard hamiltonian with x=6 and y=1 = (64, 64)
-Shape of exact rho = (64, 64)
-Exact energy from Exact Diag. = -2.90280999 Hartree
-Exact energy from Tr(H@rho) = -2.90280999 Hartree
-‖rho_exact - rho_mf‖  =  0.9868745152156453
-Approx. energy from Tr(H@rho_mf) = 1.12263766 Hartree
-‖rho_exact - rho_rebuilt‖  =  1.569824710173597
-Approx. energy from Tr(H@rho_rebuilt) = -10.13948952 Hartree
-"""
