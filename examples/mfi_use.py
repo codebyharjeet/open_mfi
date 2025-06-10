@@ -2,8 +2,8 @@ import numpy as np
 import openfermion as of 
 import string
 import itertools
-
-from mfi import *
+import open_mfi
+# from mfi_hilbert import *
 
 x_dimension = 4
 y_dimension = 1

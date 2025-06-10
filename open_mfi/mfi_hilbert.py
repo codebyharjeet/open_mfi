@@ -184,35 +184,35 @@ class ClusterExpansion:
 
         indices = set(i for i in range(N))
 
-        # for i, j in itertools.combinations(range(N), 2):
-        #     rho_ij, _ = self._partial_trace(tens, list(indices - {i, j}))
-        #     lam_ij = rho_ij - np.kron(singles[i], singles[j])
-        #     lam[(i, j)] = lam_ij
-        #     if self.verbose:
-        #         tmp = np.linalg.norm(lam_ij)
-        #         print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))    
-
         for i, j in itertools.combinations(range(N), 2):
-            rho_ij_bar, _ = self._partial_trace(tens, list({i, j}), full_space=True)
-            print("Trace rho_ij_bar = ", np.trace(rho_ij_bar))
-            H_ij_bar, N = self._reshape_to_tensor(rho_ij_bar @ self.ham)
-            H_ij, _ = self._partial_trace(H_ij_bar, list(indices - {i, j}), full_space=False)
-            # print(f"Eigenvals of H_ij{i,j, np.linalg.eigvals(H_ij)}")
-
-            rho_ij = self.diagonalize_and_build_rho(H_ij)
-            rho_ij_re, N = self._reshape_to_tensor(rho_ij)
-            rho_i, _ = self._partial_trace(rho_ij_re, [0], full_space=False)
-            rho_j, _ = self._partial_trace(rho_ij_re, [1], full_space=False)
-
-            # rho_i = np.einsum("ijIj->iI", rho_ij)
-            # rho_j = np.einsum("ijiJ->jJ", rho_ij)
-            print("Trace rho_ij = ", np.trace(rho_ij))
-            # lam_ij = rho_ij - np.kron(singles[i], singles[j])
-            lam_ij = rho_ij - np.kron(rho_i, rho_j)
+            rho_ij, _ = self._partial_trace(tens, list(indices - {i, j}))
+            lam_ij = rho_ij - np.kron(singles[i], singles[j])
             lam[(i, j)] = lam_ij
             if self.verbose:
                 tmp = np.linalg.norm(lam_ij)
                 print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))    
+
+        # for i, j in itertools.combinations(range(N), 2):
+        #     rho_ij_bar, _ = self._partial_trace(tens, list({i, j}), full_space=True)
+        #     print("Trace rho_ij_bar = ", np.trace(rho_ij_bar))
+        #     H_ij_bar, N = self._reshape_to_tensor(rho_ij_bar @ self.ham)
+        #     H_ij, _ = self._partial_trace(H_ij_bar, list(indices - {i, j}), full_space=False)
+        #     # print(f"Eigenvals of H_ij{i,j, np.linalg.eigvals(H_ij)}")
+
+        #     rho_ij = self.diagonalize_and_build_rho(H_ij)
+        #     rho_ij_re, N = self._reshape_to_tensor(rho_ij)
+        #     rho_i, _ = self._partial_trace(rho_ij_re, [0], full_space=False)
+        #     rho_j, _ = self._partial_trace(rho_ij_re, [1], full_space=False)
+
+        #     # rho_i = np.einsum("ijIj->iI", rho_ij)
+        #     # rho_j = np.einsum("ijiJ->jJ", rho_ij)
+        #     print("Trace rho_ij = ", np.trace(rho_ij))
+        #     # lam_ij = rho_ij - np.kron(singles[i], singles[j])
+        #     lam_ij = rho_ij - np.kron(rho_i, rho_j)
+        #     lam[(i, j)] = lam_ij
+        #     if self.verbose:
+        #         tmp = np.linalg.norm(lam_ij)
+        #         print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))    
 
         return lam
 
@@ -299,4 +299,4 @@ class ClusterExpansion:
 
 
 if __name__ == "__main__":
-
+    print()

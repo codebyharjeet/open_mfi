@@ -12,7 +12,9 @@ import sys
 import numpy as np
 import pytest
 import open_mfi
-from mfi import ClusterExpansion  
+from open_mfi import *
+# from open_mfi.mfi_hilbert import mfi_hilbert
+# from mfi_hilbert import ClusterExpansion  
 
 def test_open_mfi_imported():
     """Sample test, will always pass so long as import statement worked."""
@@ -27,9 +29,31 @@ def random_density(n_qubits: int, seed: int = 1234) -> np.ndarray:
     rho = A @ A.conj().T
     return rho / np.trace(rho)
 
+def random_hamiltonian(n_qubits: int, seed: int = 1234) -> np.ndarray:
+    """
+    Generate a random Hermitian Hamiltonian of dimension 2^N x 2^N.
+
+    Parameters
+    ----------
+    n_qubits : int
+        Number of qubits (matrix dimension will be 2**n_qubits).
+    seed : int, optional
+        RNG seed for reproducibility.  Passing the same seed yields the same Hamiltonian.
+
+    Returns
+    -------
+    H : np.ndarray
+        Hermitian matrix suitable to serve as an N-qubit Hamiltonian.
+    """
+    rng = np.random.default_rng(seed)
+    dim = 2 ** n_qubits
+    A   = rng.normal(size=(dim, dim)) + 1j * rng.normal(size=(dim, dim))
+    H   = (A + A.conj().T) / 2         
+    return H
+
 NQ = 3                           
 RHO = random_density(NQ)
-
+H = random_hamiltonian(NQ)
 
 # ----------  reshape_to_tensor  -------------------------------------- #
 def test_reshape_to_tensor_roundtrip():
@@ -41,23 +65,24 @@ def test_reshape_to_tensor_roundtrip():
 
 # ----------  class construction  ------------------------------------- #
 def test_constructor_checks():
-    ClusterExpansion(RHO, NQ)
+
+    ClusterExpansion(RHO, H, NQ)
 
     # non-Hermitian -> should raise
     bad = RHO.copy()
     bad[0, 1] += 0.3
     with pytest.raises(ValueError):
-        ClusterExpansion(bad, NQ)
+        ClusterExpansion(bad, H, NQ)
 
     # trace ≠ 1  -> should raise
     bad = RHO * 2.0
     with pytest.raises(ValueError):
-        ClusterExpansion(bad, NQ)
+        ClusterExpansion(bad, H, NQ)
 
 
 # ----------  partial_trace  (single qubit) --------------------------- #
 def test_partial_trace_one_qubit():
-    C = ClusterExpansion(RHO, NQ)
+    C = ClusterExpansion(RHO, H, NQ)
     tens, _ = C._reshape_to_tensor(RHO)
     reduced, keep = C._partial_trace(tens, trace_out=[1], full_space=False)
     assert reduced.shape == (4, 4)      # 2^(N-1) = 4
@@ -67,7 +92,7 @@ def test_partial_trace_one_qubit():
 
 # ----------  one-qubit marginals ------------------------------------- #
 def test_one_qubit_marginals():
-    C = ClusterExpansion(RHO, NQ)
+    C = ClusterExpansion(RHO, H, NQ)
     singles = C.one_qubit_marginals()
     assert len(singles) == NQ
     for rho_k in singles:
@@ -81,7 +106,7 @@ def test_one_qubit_marginals():
 
 # ----------  mean-field state ---------------------------------------- #
 def test_mean_field_state():
-    C = ClusterExpansion(RHO, NQ)
+    C = ClusterExpansion(RHO, H, NQ)
     singles = C.one_qubit_marginals()
     rho_mf = C.mean_field_state()
     assert rho_mf.shape == RHO.shape
@@ -90,7 +115,7 @@ def test_mean_field_state():
 
 # ----------  two-qubit cumulants ------------------------------------- #
 def test_two_qubit_cumulants_trace_zero():
-    C = ClusterExpansion(RHO, NQ)
+    C = ClusterExpansion(RHO, H, NQ)
     singles = C.one_qubit_marginals()
     lam = C.two_qubit_cumulants()
     # there are NQ*(NQ-1)/2 pairs
@@ -102,7 +127,7 @@ def test_two_qubit_cumulants_trace_zero():
 
 # ----------  embed_pair  --------------------------------------------- #
 def test_embed_pair_shape_trace():
-    C = ClusterExpansion(RHO, NQ)
+    C = ClusterExpansion(RHO, H, NQ)
     singles = C.one_qubit_marginals()
     lam = C.two_qubit_cumulants()
     (i, j), lam_ij = next(iter(lam.items()))
@@ -114,7 +139,7 @@ def test_embed_pair_shape_trace():
 
 # ----------  full cluster expansion ---------------------------------- #
 def test_cluster_expansion_rho_properties():
-    C = ClusterExpansion(RHO, NQ)
+    C = ClusterExpansion(RHO, H, NQ)
     rho_rebuilt, rho_mf = C.cluster_expansion_rho()
     # shapes
     assert rho_rebuilt.shape == RHO.shape
