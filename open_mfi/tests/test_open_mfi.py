@@ -1,13 +1,23 @@
-import numpy as np
-import pytest
-from mfi import ClusterExpansion  
-
+"""
+Unit and regression test for the open_mfi package.
+"""
 """
 Unit tests for the `ClusterExpansion` class.
 
 Run with::
     pytest test_cluster_expansion.py       
 """
+
+import sys
+import numpy as np
+import pytest
+import open_mfi
+from mfi import ClusterExpansion  
+
+def test_open_mfi_imported():
+    """Sample test, will always pass so long as import statement worked."""
+    assert "open_mfi" in sys.modules
+
 
 def random_density(n_qubits: int, seed: int = 1234) -> np.ndarray:
     """Generate a random full-rank density matrix of dimension 2^N."""

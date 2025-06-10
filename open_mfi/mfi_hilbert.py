@@ -1,3 +1,5 @@
+"""Provide the primary functions."""
+
 import numpy as np
 import itertools
 import string
@@ -34,6 +36,7 @@ class ClusterExpansion:
     def __init__(
         self,
         rho_full: np.ndarray,
+        hamiltonian: np.ndarray,
         n_qubits: int,
         n_a: int | None = None,
         n_b: int | None = None,
@@ -50,6 +53,7 @@ class ClusterExpansion:
             raise ValueError("rho_full must be positive semi-definite")
 
         self.rho_full = rho_full.astype(complex)
+        self.ham = hamiltonian.astype(complex)
         self.N        = n_qubits
         self.n_a      = n_a
         self.n_b      = n_b
@@ -124,7 +128,8 @@ class ClusterExpansion:
         if not full_space:
             return tensor_reduced.reshape(2**len(keep), 2**len(keep)), keep
 
-        I_t   = (np.eye(2**t) / 2**t).reshape((2,)*t + (2,)*t)
+        # I_t   = (np.eye(2**t) / 2**t).reshape((2,)*t + (2,)*t)
+        I_t   = (np.eye(2**t)).reshape((2,)*t + (2,)*t)
 
         bra_labels = [letters[q] for q in range(N)]
         ket_labels = [Letters[q] for q in range(N)]
@@ -145,6 +150,7 @@ class ClusterExpansion:
         """Projector onto the ground state of a 4x4 Hermitian."""
         evals, evecs = np.linalg.eigh(H_ij)
         psi0 = evecs[:, 0]               # ground‐state (lowest eigenvalue) column
+        print("eigenvalue = ", evals[0])
         return np.outer(psi0, psi0.conj())
 
     def one_qubit_marginals(self) -> List[np.ndarray]:
@@ -178,10 +184,58 @@ class ClusterExpansion:
 
         indices = set(i for i in range(N))
 
+        # for i, j in itertools.combinations(range(N), 2):
+        #     rho_ij, _ = self._partial_trace(tens, list(indices - {i, j}))
+        #     lam_ij = rho_ij - np.kron(singles[i], singles[j])
+        #     lam[(i, j)] = lam_ij
+        #     if self.verbose:
+        #         tmp = np.linalg.norm(lam_ij)
+        #         print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))    
+
         for i, j in itertools.combinations(range(N), 2):
-            rho_ij, _ = self._partial_trace(tens, list(indices - {i, j}))
-            lam_ij = rho_ij - np.kron(singles[i], singles[j])
+            rho_ij_bar, _ = self._partial_trace(tens, list({i, j}), full_space=True)
+            print("Trace rho_ij_bar = ", np.trace(rho_ij_bar))
+            H_ij_bar, N = self._reshape_to_tensor(rho_ij_bar @ self.ham)
+            H_ij, _ = self._partial_trace(H_ij_bar, list(indices - {i, j}), full_space=False)
+            # print(f"Eigenvals of H_ij{i,j, np.linalg.eigvals(H_ij)}")
+
+            rho_ij = self.diagonalize_and_build_rho(H_ij)
+            rho_ij_re, N = self._reshape_to_tensor(rho_ij)
+            rho_i, _ = self._partial_trace(rho_ij_re, [0], full_space=False)
+            rho_j, _ = self._partial_trace(rho_ij_re, [1], full_space=False)
+
+            # rho_i = np.einsum("ijIj->iI", rho_ij)
+            # rho_j = np.einsum("ijiJ->jJ", rho_ij)
+            print("Trace rho_ij = ", np.trace(rho_ij))
+            # lam_ij = rho_ij - np.kron(singles[i], singles[j])
+            lam_ij = rho_ij - np.kron(rho_i, rho_j)
             lam[(i, j)] = lam_ij
+            if self.verbose:
+                tmp = np.linalg.norm(lam_ij)
+                print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))    
+
+        return lam
+
+    def three_qubit_cumulants(self) -> Dict[Tuple[int, int, int], np.ndarray]:
+        """
+        Compute λ_{ijk} ≡ rho_{ijk} - rho_i ⊗ rho_j ⊗ rho_k for every pair i < j < k.
+
+        Returns
+        -------
+        dict
+            Keys (i, j, k) and 8x8 arrays λ_{ijk} (zero-trace by construction).
+        """  
+
+        tens, N = self._reshape_to_tensor(self.rho_full)
+        singles = self.one_qubit_marginals()
+        lam: Dict[Tuple[int, int, int], np.ndarray] = {}
+
+        indices = set(i for i in range(N))
+
+        for i, j, k in itertools.combinations(range(N), 3):
+            rho_ijk, _ = self._partial_trace(tens, list(indices - {i, j, k}))
+            lam_ijk = rho_ijk - np.kron(singles[i], singles[j])
+            lam[(i, j, k)] = lam_ijk
             if self.verbose:
                 tmp = np.linalg.norm(lam_ij)
                 print("Norm of  λ(%i,%i) = %12.8f" %(i,j,tmp))    
@@ -241,4 +295,8 @@ class ClusterExpansion:
             rho_rebuilt += self._embed_pair(lam_ij, i, j, singles)
 
         return rho_rebuilt, rho_mf 
+
+
+
+if __name__ == "__main__":
 
