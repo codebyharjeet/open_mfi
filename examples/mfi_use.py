@@ -3,9 +3,9 @@ import openfermion as of
 import string
 import itertools
 import open_mfi
-# from mfi_hilbert import *
+from open_mfi import *
 
-x_dimension = 4
+x_dimension = 6
 y_dimension = 1
 n_qubits = x_dimension * y_dimension
 
@@ -26,7 +26,7 @@ H_dense = H_sparse.toarray()
 C = ClusterExpansion(rho_exact, H_dense, n_qubits=n_qubits, verbose=0)
 
 rho_mf           = C.mean_field_state()
-rho_rebuilt, _   = C.cluster_expansion_rho()
+rho_rebuilt, _   = C.cluster_expansion_rho(compute_3q_cumulants=True, compute_4q_cumulants=True)
 
 print("‖rho_exact - rho_mf‖  = ",np.linalg.norm(rho_exact - rho_mf))
 print(f"Approx. energy from Tr(H@rho_mf) = {(np.trace(H_sparse@rho_mf)).real:.8f} Hartree")
