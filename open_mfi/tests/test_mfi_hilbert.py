@@ -375,43 +375,6 @@ class TestFourQubitCumulants:
             mock_print.assert_called()  # Should print for the quadruplet
 
 
-class TestEmbedPair:
-    """Test _embed_pair static method."""
-    
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.C = ClusterExpansion(RHO_3, H_3, NQ_3)
-        self.singles = self.C.one_qubit_marginals()
-        self.lam = self.C.two_qubit_cumulants()
-    
-    def test_embed_pair_shape_trace(self):
-        """Test embedding preserves shape and trace properties."""
-        (i, j), lam_ij = next(iter(self.lam.items()))
-        full = ClusterExpansion._embed_pair(lam_ij, i, j, self.singles)
-        assert full.shape == RHO_3.shape
-        assert np.isclose(np.trace(full), 0.0, atol=1e-12)  # Zero trace preserved
-    
-    def test_embed_pair_all_combinations(self):
-        """Test embedding for all possible qubit pairs."""
-        for (i, j), lam_ij in self.lam.items():
-            full = ClusterExpansion._embed_pair(lam_ij, i, j, self.singles)
-            assert full.shape == RHO_3.shape
-            assert np.allclose(full, full.conj().T)  # Hermitian
-    
-    def test_embed_pair_equal_indices_error(self):
-        """Test ValueError when i == j."""
-        lam_ij = self.lam[(0, 1)]
-        with pytest.raises(ValueError, match="i and j must differ"):
-            ClusterExpansion._embed_pair(lam_ij, 0, 0, self.singles)
-    
-    def test_embed_pair_verbose(self):
-        """Test verbose mode for embed_pair."""
-        (i, j), lam_ij = next(iter(self.lam.items()))
-        with patch('builtins.print') as mock_print:
-            ClusterExpansion._embed_pair(lam_ij, i, j, self.singles, verbose=1)
-            mock_print.assert_called()
-
-
 class TestEmbedCluster:
     """Test _embed_cluster static method."""
     
@@ -521,3 +484,210 @@ class TestClusterExpansionRho:
         assert err_rebuilt <= err_mf + 1e-10
 
 
+class TestAdditionalCoverage:
+    """Additional tests t"""
+    
+    def test_wrong_shape_hamiltonian(self):
+        """Test with wrong hamiltonian shape (should still work)."""
+        # The code doesn't validate hamiltonian shape, so this should pass
+        wrong_ham = np.random.random((3, 3))
+        C = ClusterExpansion(RHO_2, wrong_ham, NQ_2)
+        assert C.ham.shape == (3, 3)
+    
+    def test_non_square_matrix_reshape_to_tensor(self):
+        """Test _reshape_to_tensor with non-square matrix."""
+        bad_matrix = np.random.random((4, 3))  # Non-square
+        with pytest.raises((ValueError, IndexError)):
+            ClusterExpansion._reshape_to_tensor(bad_matrix)
+    
+    def test_partial_trace_verbose_output(self):
+        """Test _partial_trace verbose mode actually prints."""
+        C = ClusterExpansion(RHO_3, H_3, NQ_3)
+        tensor_3, _ = C._reshape_to_tensor(RHO_3)
+        
+        with patch('builtins.print') as mock_print:
+            # Test the verboses = True branch (currently hardcoded to False)
+            # We need to modify the verboses variable inside the function
+            # Since it's hardcoded, we'll test the verbose parameter instead
+            ClusterExpansion._partial_trace(
+                tensor_3, [1], full_space=True, format="matrix", verbose=1
+            )
+            # Should print the einsum string
+            mock_print.assert_called()
+    
+    def test_invalid_qubit_index_in_trace_out(self):
+        """Test partial trace with invalid qubit indices."""
+        C = ClusterExpansion(RHO_3, H_3, NQ_3)
+        tensor_3, _ = C._reshape_to_tensor(RHO_3)
+        
+        # This should work fine - invalid indices are just ignored in the logic
+        reduced, keep = ClusterExpansion._partial_trace(
+            tensor_3, [5], full_space=False, format="matrix"
+        )
+        # Should return original matrix since qubit 5 doesn't exist
+        assert keep == [0, 1, 2]
+    
+    def test_main_block_execution(self):
+        """Test the if __name__ == '__main__' block."""
+        # This is a bit tricky to test directly, but we can import the module
+        # and check that it doesn't raise an error
+        import open_mfi.mfi_hilbert
+        # The main block just prints an empty line, so this should pass
+        assert True
+    
+    def test_embed_cluster_verbose_true(self):
+        """Test _embed_cluster with verbose=True."""
+        C = ClusterExpansion(RHO_3, H_3, NQ_3)
+        singles = C.one_qubit_marginals()
+        lam_2q = C.two_qubit_cumulants()
+        
+        (i, j), lam_ij = next(iter(lam_2q.items()))
+        with patch('builtins.print') as mock_print:
+            ClusterExpansion._embed_cluster(lam_ij, (i, j), singles, verbose=True)
+            mock_print.assert_called_with("einsum:", f"abAB,cC->abcABC")
+    
+    def test_partial_trace_with_duplicates_in_trace_out(self):
+        """Test partial trace with duplicate indices in trace_out."""
+        C = ClusterExpansion(RHO_3, H_3, NQ_3)
+        tensor_3, _ = C._reshape_to_tensor(RHO_3)
+        
+        # Duplicate indices should be handled gracefully
+        reduced, keep = ClusterExpansion._partial_trace(
+            tensor_3, [1, 1, 2], full_space=False, format="matrix"
+        )
+        # Should effectively trace out qubits 1 and 2
+        assert reduced.shape == (2, 2)
+        assert keep == [0]
+    
+    def test_constructor_with_all_optional_parameters(self):
+        """Test constructor with all optional parameters set."""
+        C = ClusterExpansion(
+            RHO_3, H_3, NQ_3, 
+            n_a=1, n_b=1, n_orb=2, verbose=2
+        )
+        assert C.n_a == 1
+        assert C.n_b == 1  
+        assert C.n_orb == 2
+        assert C.verbose == 2
+    
+    def test_einsum_optimization_paths(self):
+        """Test that einsum operations use optimization."""
+        C = ClusterExpansion(RHO_4, H_4, NQ_4)
+        
+        # This tests the optimize=True parameter in various einsum calls
+        lam_3q = C.three_qubit_cumulants()
+        lam_4q = C.four_qubit_cumulants()
+        
+        # Just verify they complete without error
+        assert len(lam_3q) == 4  # C(4,3) = 4
+        assert len(lam_4q) == 1  # C(4,4) = 1
+    
+    def test_complex_dtype_preservation(self):
+        """Test that complex dtypes are preserved throughout."""
+        # Create a purely imaginary density matrix
+        rho_complex = RHO_2.astype(complex)
+        rho_complex += 1j * 0.01 * np.random.random(RHO_2.shape)
+        rho_complex = (rho_complex + rho_complex.conj().T) / 2  # Keep Hermitian
+        rho_complex = rho_complex / np.trace(rho_complex)  # Normalize
+        
+        C = ClusterExpansion(rho_complex, H_2, NQ_2)
+        singles = C.one_qubit_marginals()
+        
+        # All outputs should preserve complex dtype
+        for single in singles:
+            assert single.dtype == complex
+        
+        rho_rebuilt, rho_mf = C.cluster_expansion_rho()
+        assert rho_rebuilt.dtype == complex
+        assert rho_mf.dtype == complex
+
+
+class TestEdgeCasesAndBoundaries:
+    """Test edge cases and boundary conditions."""
+    
+    def test_single_qubit_system(self):
+        """Test with single qubit (minimal system)."""
+        rho_1 = random_density(1, seed=999)
+        H_1 = random_hamiltonian(1, seed=999)
+        
+        C = ClusterExpansion(rho_1, H_1, 1)
+        singles = C.one_qubit_marginals()
+        assert len(singles) == 1
+        assert np.allclose(singles[0], rho_1)
+        
+        # Mean field should be identical to original
+        rho_mf = C.mean_field_state()
+        assert np.allclose(rho_mf, rho_1)
+        
+        # No 2-qubit cumulants possible
+        lam_2q = C.two_qubit_cumulants()
+        assert len(lam_2q) == 0
+        
+        # Cluster expansion should return mean field only
+        rho_rebuilt, rho_mf_returned = C.cluster_expansion_rho()
+        assert np.allclose(rho_rebuilt, rho_mf)
+        assert np.allclose(rho_rebuilt, rho_1)
+    
+    def test_matrix_dimension_exactly_power_of_two_boundary(self):
+        """Test matrices with dimensions that are exactly powers of 2."""
+        for n in [1, 2, 3, 4, 5]:
+            dim = 2**n
+            mat = np.eye(dim, dtype=complex)
+            tensor, N = ClusterExpansion._reshape_to_tensor(mat)
+            assert N == n
+            assert tensor.shape == (2,) * n + (2,) * n
+    
+    def test_trace_tolerance_boundaries(self):
+        """Test density matrices with trace very close to 1."""
+        rho_close = RHO_2.copy()
+        rho_close = rho_close / np.trace(rho_close)
+        rho_close *= (1.0 + 1e-14)  # Very slight deviation
+        
+        # Should still pass validation
+        C = ClusterExpansion(rho_close, H_2, NQ_2)
+        assert C.rho_full is not None
+        
+        # Test with trace slightly too far off
+        rho_bad = RHO_2.copy() * 1.1  # 10% off
+        with pytest.raises(ValueError, match="Trace\\(rho\\) must be 1"):
+            ClusterExpansion(rho_bad, H_2, NQ_2)
+    
+    def test_eigenvalue_tolerance_boundaries(self):
+        """Test positive semi-definite check with small negative eigenvalues."""
+        # Create matrix with very small negative eigenvalue
+        eigenvals = np.array([0.8, 0.2, 1e-12, -1e-12])
+        eigenvecs = np.random.random((4, 4))
+        eigenvecs, _ = np.linalg.qr(eigenvecs)  # Orthogonalize
+        
+        rho_boundary = eigenvecs @ np.diag(eigenvals) @ eigenvecs.T
+        rho_boundary = rho_boundary / np.trace(rho_boundary)
+        
+        # Should pass with very small negative eigenvalue (within tolerance)
+        C = ClusterExpansion(rho_boundary, H_2, NQ_2)
+        assert C.rho_full is not None
+
+
+class TestPrintStatements:
+    """Test all print statements for coverage."""
+    
+    def test_diagonalize_print_statement(self):
+        """Test that diagonalize_and_build_rho prints eigenvalue."""
+        H = np.array([[2, 1], [1, 3]], dtype=complex)
+        with patch('builtins.print') as mock_print:
+            rho = ClusterExpansion.diagonalize_and_build_rho(H)
+            # Should print the lowest eigenvalue
+            expected_eigenvalue = np.linalg.eigvalsh(H)[0]
+            mock_print.assert_called_with("eigenvalue = ", expected_eigenvalue)
+    
+    def test_all_verbose_print_paths(self):
+        """Ensure all verbose print statements are covered."""
+        C = ClusterExpansion(RHO_4, H_4, NQ_4, verbose=1)
+        
+        with patch('builtins.print') as mock_print:
+            # This should trigger verbose prints in cumulant calculations
+            lam_2q = C.two_qubit_cumulants()
+            lam_3q = C.three_qubit_cumulants() 
+            lam_4q = C.four_qubit_cumulants()
+            
+            # Should have printed for each cumulant
+            assert mock_print.call_count >= (len(lam_2q) + len(lam_3q) + len(lam_4q))

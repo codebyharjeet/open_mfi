@@ -328,39 +328,6 @@ class ClusterExpansion:
         return lam
 
     @staticmethod
-    def _embed_pair(lam_ij: np.ndarray, i: int, j: int, singles: List[np.ndarray],verbose: int = 0) -> np.ndarray:
-        """
-        Embed λ_{ij} on qubits (i,j) and single-site rho_k on all others.
-
-        Returns
-        -------
-        ndarray
-            Full-space (2^N x 2^N) operator with correct qubit ordering.
-        """
-
-        if i == j:
-            raise ValueError("i and j must differ")
-
-        N = len(singles)
-
-        lam_t       = lam_ij.reshape(2, 2, 2, 2)
-        
-        operands    = [lam_t] + [singles[q] for q in range(N) if q not in (i, j)]
-
-        lc, uc = list(string.ascii_lowercase), list(string.ascii_uppercase)
-
-        subs = [f"{lc[i]}{lc[j]}{uc[i]}{uc[j]}"]         
-        subs += [f"{lc[q]}{uc[q]}" for q in range(N) if q not in (i, j)]
-
-        rhs  = ''.join(lc[:N] + uc[:N])  
-
-        full_t = np.einsum(','.join(subs) + '->' + rhs, *operands)
-        if verbose:
-            print(f"full_t = np.einsum({','.join(subs) + '->' + rhs}, *operands)")
-
-        return full_t.reshape(2**N, 2**N)
-
-    @staticmethod
     def _embed_cluster(lam_k: np.ndarray,indices: Tuple[int, ...],singles: List[np.ndarray],verbose: bool = False) -> np.ndarray:
         """
         Embed a k-body cumulant lam_k on qubits `indices`,
