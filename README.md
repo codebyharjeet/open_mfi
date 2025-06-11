@@ -5,12 +5,11 @@ open_mfi
 [![GitHub Actions Build Status](https://github.com/codebyharjeet/open_mfi/workflows/CI/badge.svg)](https://github.com/codebyharjeet/open_mfi/actions?query=workflow%3ACI)
 [![codecov](https://codecov.io/gh/codebyharjeet/open_mfi/branch/main/graph/badge.svg)](https://codecov.io/gh/codebyharjeet/open_mfi/branch/main)
 
-
 A Python based mean field increaments implementation. Current capabilities include:
-    - Mean field construction of density matrix with 3- and 4-body cumulants.
+  - Mean field construction of density matrix with 3- and 4-body cumulants.
 
 Future plans:
-    - Implementation and testing of different approximations for the construction of density matrices.
+  - Implementation and testing of different approximations for the construction of density matrices.
 
 This repository is currently under development. To do a developmental install, download this repository and type `pip install -e .` in the repository directory.
 
@@ -19,7 +18,7 @@ This package requires the following:
 
 ### Authors
 
-Harjeet Singh, Nick Mayhall
+Harjeet Singh, Prof. Nick Mayhall
 
 ### Copyright
 
