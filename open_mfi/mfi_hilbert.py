@@ -38,9 +38,9 @@ class ClusterExpansion:
         rho_full: np.ndarray,
         hamiltonian: np.ndarray,
         n_qubits: int,
-        n_a: int | None = None,
-        n_b: int | None = None,
-        n_orb: int | None = None,
+        n_a: Optional[int] = None,
+        n_b: Optional[int] = None,
+        n_orb: Optional[int] = None,
         verbose: int = 0) -> None:
         # validation
         if rho_full.shape != (2**n_qubits, 2**n_qubits):
@@ -60,27 +60,66 @@ class ClusterExpansion:
         self.n_orb    = n_orb
         self.verbose  = verbose
 
-    @staticmethod
-    def _reshape_to_tensor(mat: np.ndarray) -> Tuple[np.ndarray, int]:
-        """
-        Reshape a 2^Nx2^N matrix into a rank-2N tensor (2,)*N + (2,)*N.
+        # Cache for expensive computations
+        self._rho_tensor = None
+        self._marginals = {}  
+        self._cumulants = {}  
+        self._mean_field_state = None
 
+    @property
+    def rho_tensor(self) -> np.ndarray:
+        """Cached tensor representation of the full density matrix."""
+        if self._rho_tensor is None:
+            self._rho_tensor = self.unfold(self.rho_full)
+        return self._rho_tensor
+
+    @staticmethod
+    def unfold(mat: np.ndarray) -> np.ndarray:
+        """
+        Reshape a 2^N x 2^N matrix into a rank-2N tensor with shape (2,)*N + (2,)*N.
+        
+        Parameters
+        ----------
+        mat : ndarray
+            Matrix of shape (2^N, 2^N)
+            
         Returns
         -------
         tensor : ndarray
-            Shape (2,)*N  + (2,)*N.
-        N : int
-            Number of qubits.
+            Tensor of shape (2,)*N + (2,)*N
         """
         dim = mat.shape[0]
+        if mat.shape[0] != mat.shape[1]:
+            raise ValueError("Matrix must be square")
         N = int(np.log2(dim))
         if 2**N != dim:
             raise ValueError("Matrix dimension is not a power of two.")
         new_shape = (2,) * N + (2,) * N
-        return mat.reshape(new_shape), N
+        return mat.reshape(new_shape)
+    
+    @staticmethod
+    def fold(tensor: np.ndarray) -> np.ndarray:
+        """
+        Reshape a rank-2N tensor back into a 2^N x 2^N matrix.
+        
+        Parameters
+        ----------
+        tensor : ndarray
+            Tensor of shape (2,)*N + (2,)*N
+            
+        Returns
+        -------
+        mat : ndarray
+            Matrix of shape (2^N, 2^N)
+        """
+        if tensor.ndim % 2 != 0:
+            raise ValueError("Tensor must have even rank (2N dimensions)")
+        N = tensor.ndim // 2
+        dim = 2**N
+        return tensor.reshape(dim, dim)
 
     @staticmethod
-    def _partial_trace(tensor_full: np.ndarray,trace_out: List[int],full_space: bool = False, format: Literal["tensor", "matrix"] = "matrix",verbose: int = 0) -> Tuple[np.ndarray, List[int]]:
+    def _partial_trace(tensor_full: np.ndarray, trace_out: List[int], full_space: bool = False, format: Literal["tensor", "matrix"] = "matrix", verbose: int = 0) -> Tuple[np.ndarray, List[int]]:
         """
         Partial trace over qubits listed in `trace_out`.
 
@@ -121,7 +160,7 @@ class ClusterExpansion:
         in_sub = ''.join(bra) + ''.join(ket)
         out_sub = ''.join(bra[k] for k in keep) + ''.join(ket[k] for k in keep)
         
-        verboses = False
+        verboses = False 
         if verboses:
             print(f'tensor_reduced = np.einsum("{in_sub}->{out_sub}", tensor_full)')
         tensor_reduced = np.einsum(f'{in_sub}->{out_sub}', tensor_full)
@@ -134,8 +173,7 @@ class ClusterExpansion:
             else:
                 raise ValueError("Format must be 'tensor' or 'matrix'")
 
-        # I_t   = (np.eye(2**t) / 2**t).reshape((2,)*t + (2,)*t)
-        I_t   = (np.eye(2**t)).reshape((2,)*t + (2,)*t)
+        I_t   = (np.eye(2**t) / 2**t).reshape((2,)*t + (2,)*t)
 
         bra_labels = [letters[q] for q in range(N)]
         ket_labels = [Letters[q] for q in range(N)]
@@ -164,20 +202,142 @@ class ClusterExpansion:
         print("eigenvalue = ", evals[0])
         return np.outer(psi0, psi0.conj())
 
+    def _get_marginal(self, qubits: Tuple[int, ...]) -> np.ndarray:
+        """Get marginal density matrix for specified qubits with caching."""
+        qubits = tuple(sorted(qubits))
+        
+        if qubits not in self._marginals:
+            if len(qubits) == 1:
+                # Single qubit marginal
+                p = qubits[0]
+                trace_out = [q for q in range(self.N) if q != p]
+                rho_p, _ = self._partial_trace(self.rho_tensor, trace_out, full_space=False)
+                self._marginals[qubits] = rho_p
+            else:
+                # Multi-qubit marginal
+                indices = set(range(self.N))
+                trace_out = list(indices - set(qubits))
+                rho_marginal, _ = self._partial_trace(self.rho_tensor, trace_out, full_space=False)
+                self._marginals[qubits] = rho_marginal
+                
+        return self._marginals[qubits]
+
+    def _get_cumulant(self, qubits: Tuple[int, ...]) -> np.ndarray:
+        """Get cumulant for specified qubits with caching."""
+        qubits = tuple(sorted(qubits))
+        
+        if qubits not in self._cumulants:
+            if len(qubits) == 2:
+                # Two-qubit cumulant: λ_{ij} = ρ_{ij} - ρ_i ⊗ ρ_j
+                i, j = qubits
+                rho_ij = self._get_marginal((i, j))
+                rho_i = self._get_marginal((i,))
+                rho_j = self._get_marginal((j,))
+                lam_ij = rho_ij - np.kron(rho_i, rho_j)
+                self._cumulants[qubits] = lam_ij
+                
+                if self.verbose:
+                    trace_val = np.trace(lam_ij)
+                    norm_val = np.linalg.norm(lam_ij)
+                    print(f"λ{qubits} trace: {trace_val:.6f}, norm: {norm_val:.6f}")
+                    
+            elif len(qubits) == 3:
+                # Three-qubit cumulant: λ_{ijk} = ρ_{ijk} - ρ_i⊗ρ_j⊗ρ_k - λ_{ij}⊗ρ_k - λ_{ik}⊗ρ_j - λ_{jk}⊗ρ_i
+                i, j, k = qubits
+                rho_ijk = self._get_marginal((i, j, k))
+                rho_i = self._get_marginal((i,))
+                rho_j = self._get_marginal((j,))
+                rho_k = self._get_marginal((k,))
+                
+                lam_ij = self.unfold(self._get_cumulant((i, j)))
+                lam_ik = self.unfold(self._get_cumulant((i, k)))
+                lam_jk = self.unfold(self._get_cumulant((j, k)))
+                
+                lam_ijk = rho_ijk.copy()
+                # Mean-field term
+                lam_ijk -= np.einsum('iI, jJ, kK->ijkIJK', rho_i, rho_j, rho_k, optimize=True).reshape(8, 8) 
+                # λ_{ij} ⊗ ρ_k
+                lam_ijk -= np.einsum('ijIJ, kK->ijkIJK', lam_ij, rho_k, optimize=True).reshape(8, 8)
+                # λ_{ik} ⊗ ρ_j  
+                lam_ijk -= np.einsum('ikIK, jJ->ijkIJK', lam_ik, rho_j, optimize=True).reshape(8, 8)
+                # λ_{jk} ⊗ ρ_i
+                lam_ijk -= np.einsum('jkJK, iI->ijkIJK', lam_jk, rho_i, optimize=True).reshape(8, 8)
+
+                self._cumulants[qubits] = lam_ijk
+                
+                if self.verbose:
+                    tr = np.trace(lam_ijk)
+                    nrm = np.linalg.norm(lam_ijk)
+                    print(f"λ{qubits} trace: {tr:.4f}, norm: {nrm:.6f}")
+                    
+            elif len(qubits) == 4:
+                # Four-qubit cumulant
+                i, j, k, l = qubits
+                rho_ijkl = self._get_marginal((i, j, k, l))
+                rho_i = self._get_marginal((i,))
+                rho_j = self._get_marginal((j,))
+                rho_k = self._get_marginal((k,))
+                rho_l = self._get_marginal((l,))
+                
+                # Two-body cumulants
+                lam_ij = self.unfold(self._get_cumulant((i, j)))
+                lam_ik = self.unfold(self._get_cumulant((i, k)))
+                lam_il = self.unfold(self._get_cumulant((i, l)))
+                lam_jk = self.unfold(self._get_cumulant((j, k)))
+                lam_jl = self.unfold(self._get_cumulant((j, l)))
+                lam_kl = self.unfold(self._get_cumulant((k, l)))
+                
+                # Three-body cumulants
+                lam_ijk = self.unfold(self._get_cumulant((i, j, k)))
+                lam_ijl = self.unfold(self._get_cumulant((i, j, l)))
+                lam_ikl = self.unfold(self._get_cumulant((i, k, l)))
+                lam_jkl = self.unfold(self._get_cumulant((j, k, l)))
+                
+                lam_ijkl = rho_ijkl.copy()
+                # Mean-field term
+                lam_ijkl -= np.einsum('iI, jJ, kK, lL->ijklIJKL', rho_i, rho_j, rho_k, rho_l, optimize=True).reshape(16, 16)
+                # Three-body cumulant terms
+                lam_ijkl -= np.einsum('ijkIJK, lL->ijklIJKL', lam_ijk, rho_l, optimize=True).reshape(16, 16)
+                lam_ijkl -= np.einsum('ijlIJL, kK->ijklIJKL', lam_ijl, rho_k, optimize=True).reshape(16, 16)
+                lam_ijkl -= np.einsum('iklIKL, jJ->ijklIJKL', lam_ikl, rho_j, optimize=True).reshape(16, 16)
+                lam_ijkl -= np.einsum('jklJKL, iI->ijklIJKL', lam_jkl, rho_i, optimize=True).reshape(16, 16)                
+                # Two-body cumulant cross terms
+                # lam_ijkl -= np.einsum('ijIJ, klKL->ijklIJKL', lam_ij, lam_kl, optimize=True).reshape(16, 16)
+                # lam_ijkl -= np.einsum('ikIK, jlJL->ijklIJKL', lam_ik, lam_jl, optimize=True).reshape(16, 16)
+                # lam_ijkl -= np.einsum('ilIL, jkJK->ijklIJKL', lam_il, lam_jk, optimize=True).reshape(16, 16)
+                lam_ijkl -= np.einsum('ijIJ, kK, lL->ijklIJKL', lam_ij, rho_k, rho_l, optimize=True).reshape(16, 16)
+                # λ_{ik} ⊗ ρ_j ⊗ ρ_l
+                lam_ijkl -= np.einsum('ikIK, jJ, lL->ijklIJKL', lam_ik, rho_j, rho_l, optimize=True).reshape(16, 16)
+                # λ_{il} ⊗ ρ_j ⊗ ρ_k  
+                lam_ijkl -= np.einsum('ilIL, jJ, kK->ijklIJKL', lam_il, rho_j, rho_k, optimize=True).reshape(16, 16)
+                # λ_{jk} ⊗ ρ_i ⊗ ρ_l
+                lam_ijkl -= np.einsum('jkJK, iI, lL->ijklIJKL', lam_jk, rho_i, rho_l, optimize=True).reshape(16, 16)
+                # λ_{jl} ⊗ ρ_i ⊗ ρ_k
+                lam_ijkl -= np.einsum('jlJL, iI, kK->ijklIJKL', lam_jl, rho_i, rho_k, optimize=True).reshape(16, 16)
+                # λ_{kl} ⊗ ρ_i ⊗ ρ_j
+                lam_ijkl -= np.einsum('klKL, iI, jJ->ijklIJKL', lam_kl, rho_i, rho_j, optimize=True).reshape(16, 16)
+                
+                self._cumulants[qubits] = lam_ijkl
+                
+                if self.verbose:
+                    tr = np.trace(lam_ijkl)
+                    nrm = np.linalg.norm(lam_ijkl)
+                    print(f"λ{qubits} trace: {tr:.4f}, norm: {nrm:.6f}")
+            else:
+                raise ValueError("Only 2-4 qubit cumulants supported")
+                
+        return self._cumulants[qubits]
+
     def one_qubit_marginals(self) -> List[np.ndarray]:
         """Return list [rho₀, rho₁, …, rho_{N-1}] of (2x2) density matrices."""
-        rho_tensor, N = self._reshape_to_tensor(self.rho_full)
-        singles = []
-        for p in range(N):
-            trace_out = [q for q in range(N) if q != p]
-            rho_p, keep  = self._partial_trace(rho_tensor, trace_out, full_space=False)
-            singles.append(rho_p)         
-        return singles 
+        return [self._get_marginal((p,)) for p in range(self.N)]
 
     def mean_field_state(self) -> np.ndarray:
         """Return rho_mf = ⊗_{k=0}^{N-1} rho_k ."""
-        singles = self.one_qubit_marginals()
-        return reduce(np.kron, singles)
+        if self._mean_field_state is None:
+            singles = self.one_qubit_marginals()
+            self._mean_field_state = reduce(np.kron, singles)
+        return self._mean_field_state
 
     def two_qubit_cumulants(self) -> Dict[Tuple[int, int], np.ndarray]:
         """
@@ -188,29 +348,14 @@ class ClusterExpansion:
         dict
             Keys (i, j) and 4x4 arrays λ_{ij} (zero-trace by construction).
         """  
-
-        tens, N = self._reshape_to_tensor(self.rho_full)
-        lam: Dict[Tuple[int, int], np.ndarray] = {}
-
-        indices = set(i for i in range(N))
-
-        for i, j in itertools.combinations(range(N), 2):
-            rho_ij, _ = self._partial_trace(tens, list(indices - {i, j}))
-            rho_ij_reshaped, _ = self._reshape_to_tensor(rho_ij)
-            rho_i, _ = self._partial_trace(rho_ij_reshaped, [1])
-            rho_j, _ = self._partial_trace(rho_ij_reshaped, [0])
-            lam_ij = rho_ij - np.kron(rho_i, rho_j)
-            lam[(i, j)] = lam_ij
-            if self.verbose:
-                trace_val = np.trace(lam_ij)
-                norm_val = np.linalg.norm(lam_ij)
-                print(f"λ({i},{j}) trace: {trace_val:.6f}, norm: {norm_val:.6f}")
-
-        return lam
+        result = {}
+        for i, j in itertools.combinations(range(self.N), 2):
+            result[(i, j)] = self._get_cumulant((i, j))
+        return result
 
     def three_qubit_cumulants(self) -> Dict[Tuple[int, int, int], np.ndarray]:
         """
-        Compute λ_{ijk} ≡ rho_{ijk} - rho_{ij} ⊗ rho_k - rho_{ik} ⊗ rho_j - rho_{jk} ⊗ rho_i + 2 * rho_i ⊗ rho_j ⊗ rho_k
+        Compute λ_{ijk} ≡ rho_{ijk} - rho_i ⊗ rho_j ⊗ rho_k - λ_{ij} ⊗ rho_k - λ_{ik} ⊗ rho_j - λ_{jk} ⊗ rho_i
         for every triplet i < j < k.
 
         Returns
@@ -218,38 +363,10 @@ class ClusterExpansion:
         dict
             Keys (i, j, k) and 8x8 arrays λ_{ijk} (zero-trace by construction).
         """
-        tens, N = self._reshape_to_tensor(self.rho_full)
-
-        lam: Dict[Tuple[int, int, int], np.ndarray] = {}
-        
-        indices = set(i for i in range(N))
-        
-        for i, j, k in itertools.combinations(range(N), 3):
-            rho_ijk, _ = self._partial_trace(tens, list(indices - {i, j, k}))
-            rho_ijk_tensor, _ = self._reshape_to_tensor(rho_ijk)
-
-            rho_jk, _ = self._partial_trace(rho_ijk_tensor, [0], format="tensor")  # Trace out i
-            rho_ik, _ = self._partial_trace(rho_ijk_tensor, [1], format="tensor")  # Trace out j
-            rho_ij, _ = self._partial_trace(rho_ijk_tensor, [2], format="tensor")  # Trace out k
-            
-            rho_i, _ = self._partial_trace(rho_ijk_tensor, [1, 2])  # Trace out j, k
-            rho_j, _ = self._partial_trace(rho_ijk_tensor, [0, 2])  # Trace out i, k
-            rho_k, _ = self._partial_trace(rho_ijk_tensor, [0, 1])  # Trace out i, j
-            
-            lam_ijk = (rho_ijk 
-                    - np.einsum('ijIJ, kK->ijkIJK', rho_ij, rho_k, optimize=True).reshape(8, 8)
-                    - np.einsum('ikIK, jJ->ijkIJK', rho_ik, rho_j, optimize=True).reshape(8, 8)
-                    - np.einsum('jkJK, iI->ijkIJK', rho_jk, rho_i, optimize=True).reshape(8, 8)
-                    + 2 * np.kron(np.kron(rho_i, rho_j), rho_k))
-            
-            lam[(i, j, k)] = lam_ijk
-            
-            if self.verbose:
-                tr = np.trace(lam_ijk)
-                nrm = np.linalg.norm(lam_ijk)
-                print(f"λ({i},{j},{k}) trace: {tr:.4f}, norm: {nrm:.6f}")
-        
-        return lam
+        result = {}
+        for i, j, k in itertools.combinations(range(self.N), 3):
+            result[(i, j, k)] = self._get_cumulant((i, j, k))
+        return result
 
     def four_qubit_cumulants(self) -> Dict[Tuple[int, int, int, int], np.ndarray]:
         """
@@ -257,75 +374,19 @@ class ClusterExpansion:
         
         The fourth-order cumulant expansion is:
         λ_{ijkl} = rho_{ijkl}
-                - rho_{ijk} ⊗ rho_l - rho_{ijl} ⊗ rho_k - rho_{ikl} ⊗ rho_j - rho_{jkl} ⊗ rho_i
-                - rho_{ij} ⊗ rho_{kl} - rho_{ik} ⊗ rho_{jl} - rho_{il} ⊗ rho_{jk}
-                + 2(rho_{ij} ⊗ rho_k ⊗ rho_l + rho_{ik} ⊗ rho_j ⊗ rho_l + rho_{il} ⊗ rho_j ⊗ rho_k
-                + rho_{jk} ⊗ rho_i ⊗ rho_l + rho_{jl} ⊗ rho_i ⊗ rho_k + rho_{kl} ⊗ rho_i ⊗ rho_j)
-                - 6 * rho_i ⊗ rho_j ⊗ rho_k ⊗ rho_l
+                - rho_i ⊗ rho_j ⊗ rho_k ⊗ rho_l (mean-field)
+                - λ_{ijk} ⊗ rho_l - λ_{ijl} ⊗ rho_k - λ_{ikl} ⊗ rho_j - λ_{jkl} ⊗ rho_i (3-body cumulant terms)
+                - λ_{ij} ⊗ λ_{kl} - λ_{ik} ⊗ λ_{jl} - λ_{il} ⊗ λ_{jk} (2-body cumulant terms)
+                
         Returns
         -------
         dict
             Keys (i, j, k, l) and 16x16 arrays λ_{ijkl} (zero-trace by construction).
         """
-        tens, N = self._reshape_to_tensor(self.rho_full)
-        lam: Dict[Tuple[int, int, int, int], np.ndarray] = {}
-        
-        indices = set(i for i in range(N))
-        
-        for i, j, k, l in itertools.combinations(range(N), 4):
-            # four-qubit marginal ρ_{ijkl}
-            rho_ijkl, _ = self._partial_trace(tens, list(indices - {i, j, k, l}))
-            rho_ijkl_tensor, _ = self._reshape_to_tensor(rho_ijkl)
-            
-            # three-qubit marginals
-            rho_jkl, _ = self._partial_trace(rho_ijkl_tensor, [0], format="tensor")  # Trace out i
-            rho_ikl, _ = self._partial_trace(rho_ijkl_tensor, [1], format="tensor")  # Trace out j
-            rho_ijl, _ = self._partial_trace(rho_ijkl_tensor, [2], format="tensor")  # Trace out k
-            rho_ijk, _ = self._partial_trace(rho_ijkl_tensor, [3], format="tensor")  # Trace out l
-            
-            # two-qubit marginals
-            rho_kl, _ = self._partial_trace(rho_ijkl_tensor, [0, 1], format="tensor")  # Trace out i, j
-            rho_jl, _ = self._partial_trace(rho_ijkl_tensor, [0, 2], format="tensor")  # Trace out i, k
-            rho_jk, _ = self._partial_trace(rho_ijkl_tensor, [0, 3], format="tensor")  # Trace out i, l
-            rho_il, _ = self._partial_trace(rho_ijkl_tensor, [1, 2], format="tensor")  # Trace out j, k
-            rho_ik, _ = self._partial_trace(rho_ijkl_tensor, [1, 3], format="tensor")  # Trace out j, l
-            rho_ij, _ = self._partial_trace(rho_ijkl_tensor, [2, 3], format="tensor")  # Trace out k, l
-            
-            # single-qubit marginals
-            rho_i, _ = self._partial_trace(rho_ijkl_tensor, [1, 2, 3])  # Trace out j, k, l
-            rho_j, _ = self._partial_trace(rho_ijkl_tensor, [0, 2, 3])  # Trace out i, k, l
-            rho_k, _ = self._partial_trace(rho_ijkl_tensor, [0, 1, 3])  # Trace out i, j, l
-            rho_l, _ = self._partial_trace(rho_ijkl_tensor, [0, 1, 2])  # Trace out i, j, k
-            
-            # Compute fourth-order cumulant
-            lam_ijkl = (rho_ijkl
-                        # Subtract three-qubit ⊗ single-qubit terms
-                        - np.einsum('ijkIJK, lL->ijklIJKL', rho_ijk, rho_l, optimize=True).reshape(16, 16)
-                        - np.einsum('ijlIJL, kK->ijklIJKL', rho_ijl, rho_k, optimize=True).reshape(16, 16)
-                        - np.einsum('iklIKL, jJ->ijklIJKL', rho_ikl, rho_j, optimize=True).reshape(16, 16)
-                        - np.einsum('jklJKL, iI->ijklIJKL', rho_jkl, rho_i, optimize=True).reshape(16, 16)
-                        # Subtract two-qubit ⊗ two-qubit terms
-                        - np.einsum('ijIJ, klKL->ijklIJKL', rho_ij, rho_kl, optimize=True).reshape(16, 16)
-                        - np.einsum('ikIK, jlJL->ijklIJKL', rho_ik, rho_jl, optimize=True).reshape(16, 16)
-                        - np.einsum('ilIL, jkJK->ijklIJKL', rho_il, rho_jk, optimize=True).reshape(16, 16)
-                        # Add two-qubit ⊗ single ⊗ single terms
-                        + 2 * np.einsum('ijIJ, kK, lL->ijklIJKL', rho_ij, rho_k, rho_l, optimize=True).reshape(16, 16)
-                        + 2 * np.einsum('ikIK, jJ, lL->ijklIJKL', rho_ik, rho_j, rho_l, optimize=True).reshape(16, 16)
-                        + 2 * np.einsum('ilIL, jJ, kK->ijklIJKL', rho_il, rho_j, rho_k, optimize=True).reshape(16, 16)
-                        + 2 * np.einsum('jkJK, iI, lL->ijklIJKL', rho_jk, rho_i, rho_l, optimize=True).reshape(16, 16)
-                        + 2 * np.einsum('jlJL, iI, kK->ijklIJKL', rho_jl, rho_i, rho_k, optimize=True).reshape(16, 16)
-                        + 2 * np.einsum('klKL, iI, jJ->ijklIJKL', rho_kl, rho_i, rho_j, optimize=True).reshape(16, 16)
-                        # Subtract 6 * single ⊗ single ⊗ single ⊗ single term
-                        - 6 * np.kron(np.kron(np.kron(rho_i, rho_j), rho_k), rho_l))
-            
-            lam[(i, j, k, l)] = lam_ijkl
-            
-            if self.verbose:
-                tr = np.trace(lam_ijkl)
-                nrm = np.linalg.norm(lam_ijkl)
-                print(f"λ({i},{j},{k},{l}) trace: {tr:.4f}, norm: {nrm:.6f}")
-        
-        return lam
+        result = {}
+        for i, j, k, l in itertools.combinations(range(self.N), 4):
+            result[(i, j, k, l)] = self._get_cumulant((i, j, k, l))
+        return result
 
     @staticmethod
     def _embed_cluster(lam_k: np.ndarray,indices: Tuple[int, ...],singles: List[np.ndarray],verbose: bool = False) -> np.ndarray:
@@ -375,16 +436,15 @@ class ClusterExpansion:
 
         rho_rebuilt  = rho_mf.copy()
         for (i, j), lam_ij in lam_2q.items():
-            # rho_rebuilt += self._embed_pair(lam_ij, i, j, singles)
             rho_rebuilt += self._embed_cluster(lam_ij, (i,j), singles)
 
         if compute_3q_cumulants:
-            lam_3q     = self.three_qubit_cumulants()
+            lam_3q = self.three_qubit_cumulants()
             for (i, j, k), lam_ijk in lam_3q.items():
                 rho_rebuilt += self._embed_cluster(lam_ijk, (i,j,k), singles)
 
         if compute_4q_cumulants:
-            lam_4q     = self.four_qubit_cumulants()
+            lam_4q = self.four_qubit_cumulants()
             for (i, j, k, l), lam_ijkl in lam_4q.items():
                 rho_rebuilt += self._embed_cluster(lam_ijkl, (i,j,k,l), singles)
 
