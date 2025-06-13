@@ -3,7 +3,7 @@ open_mfi
 [//]: # (Badges)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub Actions Build Status](https://github.com/codebyharjeet/open_mfi/workflows/CI/badge.svg)](https://github.com/codebyharjeet/open_mfi/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/codebyharjeet/open_mfi/branch/main/graph/badge.svg)](https://codecov.io/gh/codebyharjeet/open_mfi/branch/main)
+[![codecov](https://codecov.io/gh/codebyharjeet/open_mfi/graph/badge.svg)](https://codecov.io/gh/codebyharjeet/open_mfi)
 
 A Python based mean field increaments implementation. Current capabilities include:
   - Mean field construction of density matrix with 3- and 4-body cumulants.
