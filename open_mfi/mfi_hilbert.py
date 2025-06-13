@@ -302,19 +302,11 @@ class ClusterExpansion:
                 lam_ijkl -= np.einsum('iklIKL, jJ->ijklIJKL', lam_ikl, rho_j, optimize=True).reshape(16, 16)
                 lam_ijkl -= np.einsum('jklJKL, iI->ijklIJKL', lam_jkl, rho_i, optimize=True).reshape(16, 16)                
                 # Two-body cumulant cross terms
-                # lam_ijkl -= np.einsum('ijIJ, klKL->ijklIJKL', lam_ij, lam_kl, optimize=True).reshape(16, 16)
-                # lam_ijkl -= np.einsum('ikIK, jlJL->ijklIJKL', lam_ik, lam_jl, optimize=True).reshape(16, 16)
-                # lam_ijkl -= np.einsum('ilIL, jkJK->ijklIJKL', lam_il, lam_jk, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('ijIJ, kK, lL->ijklIJKL', lam_ij, rho_k, rho_l, optimize=True).reshape(16, 16)
-                # λ_{ik} ⊗ ρ_j ⊗ ρ_l
+                lam_ijkl -= np.einsum('ijIJ, kK, lL->ijklIJKL', lam_ij, rho_k, rho_l, optimize=True).reshape(16, 16) 
                 lam_ijkl -= np.einsum('ikIK, jJ, lL->ijklIJKL', lam_ik, rho_j, rho_l, optimize=True).reshape(16, 16)
-                # λ_{il} ⊗ ρ_j ⊗ ρ_k  
                 lam_ijkl -= np.einsum('ilIL, jJ, kK->ijklIJKL', lam_il, rho_j, rho_k, optimize=True).reshape(16, 16)
-                # λ_{jk} ⊗ ρ_i ⊗ ρ_l
                 lam_ijkl -= np.einsum('jkJK, iI, lL->ijklIJKL', lam_jk, rho_i, rho_l, optimize=True).reshape(16, 16)
-                # λ_{jl} ⊗ ρ_i ⊗ ρ_k
                 lam_ijkl -= np.einsum('jlJL, iI, kK->ijklIJKL', lam_jl, rho_i, rho_k, optimize=True).reshape(16, 16)
-                # λ_{kl} ⊗ ρ_i ⊗ ρ_j
                 lam_ijkl -= np.einsum('klKL, iI, jJ->ijklIJKL', lam_kl, rho_i, rho_j, optimize=True).reshape(16, 16)
                 
                 self._cumulants[qubits] = lam_ijkl
