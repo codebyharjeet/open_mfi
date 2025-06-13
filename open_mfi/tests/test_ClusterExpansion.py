@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 import itertools
 from typing import Dict, Tuple, List
-from open_mfi.mfi_hilbert import ClusterExpansion
+from open_mfi.ClusterExpansion import ClusterExpansion
 
 
 class TestClusterExpansion:
