@@ -6,6 +6,8 @@ import open_mfi
 from open_mfi import *
 
 import time
+t0 = time.time()
+
 x_dimension = 4
 y_dimension = 1
 n_qubits = x_dimension * y_dimension
@@ -90,3 +92,12 @@ print(f"Approx. energy from Tr(H@rho_rebuilt) = {(np.trace(H_sparse@rho_rebuilt)
 print(" Deviation from Hermiticity  = %12.8f" %np.linalg.norm(rho_rebuilt - rho_rebuilt.conj().T))
 print(" Trace(rho_exact)            = %12.8f" %np.abs(np.trace(rho_exact)))
 print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
+
+# print(C.get_memory_usage())
+
+
+t1 = time.time()
+elapsed = t1 - t0
+minutes, seconds = divmod(elapsed, 60)
+
+print(f"Elapsed time: {int(minutes)} minutes {seconds:.4f} seconds")

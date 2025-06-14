@@ -5,7 +5,7 @@ import itertools
 import string
 from functools import reduce
 from typing import Dict, Tuple, List, Optional, Literal
-
+from opt_einsum import contract
 
 class ClusterExpansion:
     """
@@ -162,8 +162,8 @@ class ClusterExpansion:
         
         verboses = False 
         if verboses:
-            print(f'tensor_reduced = np.einsum("{in_sub}->{out_sub}", tensor_full)')
-        tensor_reduced = np.einsum(f'{in_sub}->{out_sub}', tensor_full)
+            print(f'tensor_reduced = contract("{in_sub}->{out_sub}", tensor_full)')
+        tensor_reduced = contract(f'{in_sub}->{out_sub}', tensor_full)
 
         if not full_space:
             if format == "tensor":
@@ -184,8 +184,8 @@ class ClusterExpansion:
         rhs = ''.join(bra_labels + ket_labels)
 
         if verbose:
-            print(f"tensor_full = np.einsum('{lhs_I},{lhs_rho}->{rhs}', I_t, tensor_reduced)")
-        tensor_full = np.einsum(f'{lhs_I},{lhs_rho}->{rhs}', I_t, tensor_reduced) 
+            print(f"tensor_full = contract('{lhs_I},{lhs_rho}->{rhs}', I_t, tensor_reduced)")
+        tensor_full = contract(f'{lhs_I},{lhs_rho}->{rhs}', I_t, tensor_reduced) 
 
         if format == "tensor":
             return tensor_full, keep 
@@ -255,13 +255,13 @@ class ClusterExpansion:
                 
                 lam_ijk = rho_ijk.copy()
                 # Mean-field term
-                lam_ijk -= np.einsum('iI, jJ, kK->ijkIJK', rho_i, rho_j, rho_k, optimize=True).reshape(8, 8) 
+                lam_ijk -= contract('iI, jJ, kK->ijkIJK', rho_i, rho_j, rho_k).reshape(8, 8) 
                 # λ_{ij} ⊗ ρ_k
-                lam_ijk -= np.einsum('ijIJ, kK->ijkIJK', lam_ij, rho_k, optimize=True).reshape(8, 8)
+                lam_ijk -= contract('ijIJ, kK->ijkIJK', lam_ij, rho_k).reshape(8, 8)
                 # λ_{ik} ⊗ ρ_j  
-                lam_ijk -= np.einsum('ikIK, jJ->ijkIJK', lam_ik, rho_j, optimize=True).reshape(8, 8)
+                lam_ijk -= contract('ikIK, jJ->ijkIJK', lam_ik, rho_j).reshape(8, 8)
                 # λ_{jk} ⊗ ρ_i
-                lam_ijk -= np.einsum('jkJK, iI->ijkIJK', lam_jk, rho_i, optimize=True).reshape(8, 8)
+                lam_ijk -= contract('jkJK, iI->ijkIJK', lam_jk, rho_i).reshape(8, 8)
 
                 self._cumulants[qubits] = lam_ijk
                 
@@ -295,19 +295,19 @@ class ClusterExpansion:
                 
                 lam_ijkl = rho_ijkl.copy()
                 # Mean-field term
-                lam_ijkl -= np.einsum('iI, jJ, kK, lL->ijklIJKL', rho_i, rho_j, rho_k, rho_l, optimize=True).reshape(16, 16)
+                lam_ijkl -= contract('iI, jJ, kK, lL->ijklIJKL', rho_i, rho_j, rho_k, rho_l).reshape(16, 16)
                 # Three-body cumulant terms
-                lam_ijkl -= np.einsum('ijkIJK, lL->ijklIJKL', lam_ijk, rho_l, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('ijlIJL, kK->ijklIJKL', lam_ijl, rho_k, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('iklIKL, jJ->ijklIJKL', lam_ikl, rho_j, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('jklJKL, iI->ijklIJKL', lam_jkl, rho_i, optimize=True).reshape(16, 16)                
+                lam_ijkl -= contract('ijkIJK, lL->ijklIJKL', lam_ijk, rho_l).reshape(16, 16)
+                lam_ijkl -= contract('ijlIJL, kK->ijklIJKL', lam_ijl, rho_k).reshape(16, 16)
+                lam_ijkl -= contract('iklIKL, jJ->ijklIJKL', lam_ikl, rho_j).reshape(16, 16)
+                lam_ijkl -= contract('jklJKL, iI->ijklIJKL', lam_jkl, rho_i).reshape(16, 16)                
                 # Two-body cumulant cross terms
-                lam_ijkl -= np.einsum('ijIJ, kK, lL->ijklIJKL', lam_ij, rho_k, rho_l, optimize=True).reshape(16, 16) 
-                lam_ijkl -= np.einsum('ikIK, jJ, lL->ijklIJKL', lam_ik, rho_j, rho_l, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('ilIL, jJ, kK->ijklIJKL', lam_il, rho_j, rho_k, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('jkJK, iI, lL->ijklIJKL', lam_jk, rho_i, rho_l, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('jlJL, iI, kK->ijklIJKL', lam_jl, rho_i, rho_k, optimize=True).reshape(16, 16)
-                lam_ijkl -= np.einsum('klKL, iI, jJ->ijklIJKL', lam_kl, rho_i, rho_j, optimize=True).reshape(16, 16)
+                lam_ijkl -= contract('ijIJ, kK, lL->ijklIJKL', lam_ij, rho_k, rho_l).reshape(16, 16) 
+                lam_ijkl -= contract('ikIK, jJ, lL->ijklIJKL', lam_ik, rho_j, rho_l).reshape(16, 16)
+                lam_ijkl -= contract('ilIL, jJ, kK->ijklIJKL', lam_il, rho_j, rho_k).reshape(16, 16)
+                lam_ijkl -= contract('jkJK, iI, lL->ijklIJKL', lam_jk, rho_i, rho_l).reshape(16, 16)
+                lam_ijkl -= contract('jlJL, iI, kK->ijklIJKL', lam_jl, rho_i, rho_k).reshape(16, 16)
+                lam_ijkl -= contract('klKL, iI, jJ->ijklIJKL', lam_kl, rho_i, rho_j).reshape(16, 16)
                 
                 self._cumulants[qubits] = lam_ijkl
                 
@@ -406,7 +406,7 @@ class ClusterExpansion:
         if verbose:
             print("einsum:", einsum_str)
 
-        full_t = np.einsum(einsum_str, *operands, optimize=True)
+        full_t = contract(einsum_str, *operands)
         return full_t.reshape(2**N, 2**N)
 
     def cluster_expansion_rho(self, compute_3q_cumulants: bool = False, compute_4q_cumulants: bool = False) -> Tuple[np.ndarray, np.ndarray]:
@@ -442,7 +442,27 @@ class ClusterExpansion:
 
         return rho_rebuilt, rho_mf 
 
-
+    def get_memory_usage(self) -> Dict[str, float]:
+        """Get current memory usage of cached objects in megabytes."""
+        import sys
+        
+        # Calculate sizes in bytes first
+        rho_size = sys.getsizeof(self._rho_tensor) if self._rho_tensor is not None else 0
+        marginals_size = sum(sys.getsizeof(v) for v in self._marginals.values())
+        cumulants_size = sum(sys.getsizeof(v) for v in self._cumulants.values())
+        mean_field_size = sys.getsizeof(self._mean_field_state) if self._mean_field_state is not None else 0
+        
+        # Convert to megabytes (1 MB = 1024 * 1024 bytes)
+        MB = 1024 * 1024
+        
+        memory_info = {
+            'rho_tensor': rho_size / MB,
+            'marginals': marginals_size / MB,
+            'cumulants': cumulants_size / MB,
+            'mean_field': mean_field_size / MB,
+            'total_cached_objects': len(self._marginals) + len(self._cumulants)  # Keep as count
+        }
+        return memory_info
 
 if __name__ == "__main__":
     print()
