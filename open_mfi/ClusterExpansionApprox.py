@@ -6,7 +6,7 @@ import string
 from functools import reduce
 from typing import Dict, Tuple, List, Optional, Literal
 from opt_einsum import contract
-import openfermion as of 
+
 
 class ClusterExpansionApprox:
     """
