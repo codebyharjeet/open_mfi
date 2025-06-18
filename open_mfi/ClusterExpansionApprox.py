@@ -6,8 +6,9 @@ import string
 from functools import reduce
 from typing import Dict, Tuple, List, Optional, Literal
 from opt_einsum import contract
+import openfermion as of 
 
-class ClusterExpansion:
+class ClusterExpansionApprox:
     """
     Cluster-expansion class for an N-qubit (or spin-orbital) density matrix.
 
@@ -49,8 +50,8 @@ class ClusterExpansion:
             raise ValueError("rho_full must be Hermitian (rho = rho†)")
         if not np.isclose(np.trace(rho_full), 1.0):
             raise ValueError("Trace(rho) must be 1")
-        if np.min(np.linalg.eigvalsh(rho_full)) < -1e-10:
-            raise ValueError("rho_full must be positive semi-definite")
+        # if np.min(np.linalg.eigvalsh(rho_full)) < -1e-10:
+        #     raise ValueError("rho_full must be positive semi-definite")
 
         self.rho_full = rho_full.astype(complex)
         self.ham = hamiltonian.astype(complex)
@@ -62,6 +63,7 @@ class ClusterExpansion:
 
         # Cache for expensive computations
         self._rho_tensor = None
+        self._ham_tensor = None
         self._marginals = {}  
         self._cumulants = {}  
         self._mean_field_state = None
@@ -72,6 +74,13 @@ class ClusterExpansion:
         if self._rho_tensor is None:
             self._rho_tensor = self.unfold(self.rho_full)
         return self._rho_tensor
+
+    @property
+    def ham_tensor(self) -> np.ndarray:
+        """Cached tensor representation of the full density matrix."""
+        if self._ham_tensor is None:
+            self._ham_tensor = self.unfold(self.ham)
+        return self._ham_tensor
 
     @staticmethod
     def unfold(mat: np.ndarray) -> np.ndarray:
@@ -160,7 +169,7 @@ class ClusterExpansion:
         in_sub = ''.join(bra) + ''.join(ket)
         out_sub = ''.join(bra[k] for k in keep) + ''.join(ket[k] for k in keep)
         
-        verboses = False 
+        verboses = False  
         if verboses:
             print(f'tensor_reduced = contract("{in_sub}->{out_sub}", tensor_full)')
         tensor_reduced = contract(f'{in_sub}->{out_sub}', tensor_full)
@@ -195,31 +204,48 @@ class ClusterExpansion:
             raise ValueError("Format must be 'tensor' or 'matrix'")
 
     @staticmethod
-    def diagonalize_and_build_rho(H_ij: np.ndarray) -> np.ndarray:
+    def diagonalize_and_build_rho(ham_marginals: np.ndarray) -> np.ndarray:
         """Projector onto the ground state of a 4x4 Hermitian."""
-        evals, evecs = np.linalg.eigh(H_ij)
+        evals, evecs = np.linalg.eigh(ham_marginals)
         psi0 = evecs[:, 0]               # ground‐state (lowest eigenvalue) column
-        print("eigenvalue = ", evals[0])
         return np.outer(psi0, psi0.conj())
+
+    def _contract_with_ham(self, rho_p_bar: np.ndarray, keep: List[int], trace_out: List[int]) -> np.ndarray:
+        """
+        Contract rho_p_bar with Hamiltonian tensor, keeping specified qubits.
+        """
+        
+        letters, Letters = list(string.ascii_lowercase), list(string.ascii_uppercase)
+        
+        bra_labels = [letters[q] for q in range(self.N)]
+        ket_labels = [Letters[q] for q in range(self.N)]        
+
+        sub1 = ''.join(bra_labels[q] for q in keep) + ''.join(ket_labels[q] for q in keep)
+        
+        sub2 = ''.join(bra_labels + ket_labels)
+        
+        sub3 = ''.join(bra_labels[q] for q in trace_out) + ''.join(ket_labels[q] for q in trace_out)
+        
+        verbose = False   
+        if verbose:
+            print(f"ham_p{trace_out} = contract('{sub1}, {sub2} -> {sub3}', rho_p_bar{keep}, self.ham)")
+        
+        ham_p = contract(f"{sub1}, {sub2} -> {sub3}", rho_p_bar, self.ham_tensor)
+        
+        rho_p = self.diagonalize_and_build_rho(self.fold(ham_p))
+
+        return rho_p
 
     def _get_marginal(self, qubits: Tuple[int, ...]) -> np.ndarray:
         """Get marginal density matrix for specified qubits with caching."""
         qubits = tuple(sorted(qubits))
         
         if qubits not in self._marginals:
-            if len(qubits) == 1:
-                # Single qubit marginal
-                p = qubits[0]
-                trace_out = [q for q in range(self.N) if q != p]
-                rho_p, _ = self._partial_trace(self.rho_tensor, trace_out, full_space=False)
-                self._marginals[qubits] = rho_p
-            else:
-                # Multi-qubit marginal
-                indices = set(range(self.N))
-                trace_out = list(indices - set(qubits))
-                rho_marginal, _ = self._partial_trace(self.rho_tensor, trace_out, full_space=False)
-                self._marginals[qubits] = rho_marginal
-                
+            trace_out = list(qubits)
+            rho_marginal_bar, keep = self._partial_trace(self.rho_tensor, trace_out, full_space=False, format="tensor")
+            rho_marginal = self._contract_with_ham(rho_marginal_bar, keep, trace_out)
+            self._marginals[qubits] = rho_marginal 
+
         return self._marginals[qubits]
 
     def _get_cumulant(self, qubits: Tuple[int, ...]) -> np.ndarray:
@@ -455,11 +481,10 @@ class ClusterExpansion:
         rho_mf : ndarray
             Simple product (mean-field) state.
         """
-        self.rho_tensor
+        rho_mf  = self.mean_field_state()
         singles = self.one_qubit_marginals()
         lam_2q  = self.two_qubit_cumulants()
-        rho_mf  = self.mean_field_state()
-
+        
         rho_rebuilt  = rho_mf.copy()
         for (i, j), lam_ij in lam_2q.items():
             rho_rebuilt += self._embed_cluster(lam_ij, (i,j), singles)
@@ -497,6 +522,14 @@ class ClusterExpansion:
             'total_cached_objects': len(self._marginals) + len(self._cumulants)  # Keep as count
         }
         return memory_info
+
+    def clear_cache(self, keep_marginals: bool = False):
+        """Clear cached computations to free memory."""
+        if not keep_marginals:
+            self._marginals.clear()
+        self._cumulants.clear()
+        self._mean_field_state = None
+        self._rho_tensor = None 
 
 if __name__ == "__main__":
     print()

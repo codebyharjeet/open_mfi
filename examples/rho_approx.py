@@ -8,7 +8,7 @@ from open_mfi import *
 import time
 t0 = time.time()
 
-x_dimension = 6
+x_dimension = 4
 y_dimension = 1
 n_qubits = x_dimension * y_dimension
 
@@ -16,25 +16,24 @@ H = of.hamiltonians.fermi_hubbard(x_dimension=x_dimension,y_dimension=y_dimensio
 
 
 H_sparse = of.linalg.get_sparse_operator(H, n_qubits=n_qubits)
+H_dense = H_sparse.toarray()
 E_exact, psi_exact = of.linalg.get_ground_state(H_sparse)
 rho_exact = np.outer(psi_exact, psi_exact.conj())
 
+dim = 2 ** n_qubits
+rho_guess = np.eye(dim) / dim 
+
 print(f"Shape of fermi hubbard hamiltonian with x={x_dimension} and y={y_dimension} = {H_sparse.shape}")
-print(f"Shape of exact rho = {rho_exact.shape}")
+print(f"Shape of rho rebuilt = {rho_guess.shape}")
 print(f"Exact energy from Exact Diag. = {E_exact:.8f} Hartree")
-print(f"Exact energy from Tr(H@rho) = {(np.trace(H_sparse@rho_exact)).real:.8f} Hartree")
+print(f"Initial energy from Tr(H@rho_rebuilt) = {(np.trace(H_sparse@rho_guess)).real:.8f} Hartree")
 
-H_dense = H_sparse.toarray()
-
-C = ClusterExpansion(rho_exact, H_dense, n_qubits=n_qubits, verbose=0)
-rho_mf           = C.mean_field_state()
-print("‖rho_exact - rho_mf‖  = ",np.linalg.norm(rho_exact - rho_mf))
-print(f"Approx. energy from Tr(H@rho_mf) = {(np.trace(H_sparse@rho_mf)).real:.8f} Hartree")
+C = ClusterExpansionApprox(rho_guess, H_dense, n_qubits=n_qubits, verbose=1)
 
 #Two body
 print("\n**************** - Two body - ****************")
 
-rho_rebuilt, _   = C.cluster_expansion_rho(compute_3q_cumulants=False, compute_4q_cumulants=False)
+rho_rebuilt, rho_mf   = C.rho_expansion_approx(compute_3q_cumulants=False, compute_4q_cumulants=False)
 
 print("‖rho_exact - rho_rebuilt‖  = ",np.linalg.norm(rho_exact - rho_rebuilt))
 fidelity = np.trace(rho_exact @ rho_rebuilt)
@@ -54,7 +53,7 @@ print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
 
 #Three body
 print("\n**************** - Three body - ***************")
-rho_rebuilt, _   = C.cluster_expansion_rho(compute_3q_cumulants=True, compute_4q_cumulants=False)
+rho_rebuilt, rho_mf   = C.rho_expansion_approx(compute_3q_cumulants=True, compute_4q_cumulants=False)
 
 print("‖rho_exact - rho_rebuilt‖  = ",np.linalg.norm(rho_exact - rho_rebuilt))
 fidelity = np.trace(rho_exact @ rho_rebuilt)
@@ -75,7 +74,7 @@ print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
 
 #Four body
 print("\n**************** - Four body - ****************")
-rho_rebuilt, _   = C.cluster_expansion_rho(compute_3q_cumulants=True, compute_4q_cumulants=True)
+rho_rebuilt, rho_mf   = C.rho_expansion_approx(compute_3q_cumulants=True, compute_4q_cumulants=True)
 
 print("‖rho_exact - rho_rebuilt‖  = ",np.linalg.norm(rho_exact - rho_rebuilt))
 fidelity = np.trace(rho_exact @ rho_rebuilt)
