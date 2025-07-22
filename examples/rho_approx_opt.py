@@ -28,7 +28,7 @@ rho_guess = np.eye(dim) / dim
 print(f"Shape of fermi hubbard hamiltonian with x={x_dimension} and y={y_dimension} = {H_sparse.shape}")
 print(f"Shape of rho rebuilt = {rho_guess.shape}")
 print(f"Exact energy from Exact Diag. = {E_exact:.8f} Hartree")
-print(f"Initial energy from Tr(H@rho_rebuilt) = {(np.trace(H_sparse@rho_guess)).real:.8f} Hartree")
+print(f"Initial energy from Tr(H@rho_guess) = {(np.trace(H_sparse@rho_guess)).real:.8f} Hartree")
 
 C = ClusterExpansionApprox(rho_guess, H_dense, n_qubits=n_qubits, verbose=1)
 

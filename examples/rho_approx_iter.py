@@ -17,6 +17,9 @@ H = of.hamiltonians.fermi_hubbard(x_dimension=x_dimension,y_dimension=y_dimensio
 
 H_sparse = of.linalg.get_sparse_operator(H, n_qubits=n_qubits)
 H_dense = H_sparse.toarray()
+energies = np.linalg.eigvals(H_dense)
+eig_sorted = np.sort(energies)
+print("spectrum = ", eig_sorted.real)
 E_exact, psi_exact = of.linalg.get_ground_state(H_sparse)
 rho_exact = np.outer(psi_exact, psi_exact.conj())
 
@@ -37,15 +40,23 @@ for i in range(50):
     C = ClusterExpansionApprox(rho_guess, H_dense, n_qubits=n_qubits, verbose=0)
     rho_rebuilt, rho_mf   = C.rho_expansion_approx(compute_3q_cumulants=True, compute_4q_cumulants=False)
 
-    print("‖rho_exact - rho_rebuilt‖  = ",np.linalg.norm(rho_exact - rho_rebuilt))
+    # print("‖rho_exact - rho_rebuilt‖  = ",np.linalg.norm(rho_exact - rho_rebuilt))
     fidelity = np.trace(rho_exact @ rho_rebuilt)
-    print("(rho_exact | rho_rebuilt)  = %12.8f + %12.8fi" %(np.real(fidelity), np.imag(fidelity)))
+    # print("(rho_exact | rho_rebuilt)  = %12.8f + %12.8fi" %(np.real(fidelity), np.imag(fidelity)))
+    # r_pure = rho_rebuilt
+    # for i in range(10):
+    #     print("iter = ", i)
+    #     r_pure = 3*r_pure**2 - 2*r_pure**3
+    #     print(r_pure)
+    # energy_current = (np.trace(H_sparse @ r_pure)).real
+    # print("Eigenvalues of rho_mf = ", (np.sort(np.linalg.eigvals(rho_mf)).real).tolist())
+    # print("Eigenvalues of rho_rebuilt = ", (np.sort(np.linalg.eigvals(rho_rebuilt)).real).tolist())
     energy_current = (np.trace(H_sparse @ rho_rebuilt)).real
     print(f"Approx. energy from Tr(H@rho_rebuilt) = {energy_current:.8f} Hartree")
 
-    print(" Deviation from Hermiticity  = %12.8f" %np.linalg.norm(rho_rebuilt - rho_rebuilt.conj().T))
-    print(" Trace(rho_exact)            = %12.8f" %np.abs(np.trace(rho_exact)))
-    print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
+    # print(" Deviation from Hermiticity  = %12.8f" %np.linalg.norm(rho_rebuilt - rho_rebuilt.conj().T))
+    # print(" Trace(rho_exact)            = %12.8f" %np.abs(np.trace(rho_exact)))
+    # print(" Trace(rho_rebuilt)          = %12.8f" %np.abs(np.trace(rho_rebuilt)))
 
     # Check energy convergence
     if energy_prev is not None:

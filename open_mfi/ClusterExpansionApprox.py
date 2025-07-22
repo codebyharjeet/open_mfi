@@ -169,7 +169,7 @@ class ClusterExpansionApprox:
         in_sub = ''.join(bra) + ''.join(ket)
         out_sub = ''.join(bra[k] for k in keep) + ''.join(ket[k] for k in keep)
         
-        verboses = False  
+        verboses = False    
         if verboses:
             print(f'tensor_reduced = contract("{in_sub}->{out_sub}", tensor_full)')
         tensor_reduced = contract(f'{in_sub}->{out_sub}', tensor_full)
@@ -244,6 +244,7 @@ class ClusterExpansionApprox:
             trace_out = list(qubits)
             rho_marginal_bar, keep = self._partial_trace(self.rho_tensor, trace_out, full_space=False, format="tensor")
             rho_marginal = self._contract_with_ham(rho_marginal_bar, keep, trace_out)
+            # print("Eigenvalues of rho_marginal = ", (np.sort(np.linalg.eigvals(rho_marginal)).real).tolist())
             self._marginals[qubits] = rho_marginal 
 
         return self._marginals[qubits]
@@ -257,8 +258,17 @@ class ClusterExpansionApprox:
                 # Two-qubit cumulant: λ_{ij} = ρ_{ij} - ρ_i ⊗ ρ_j
                 i, j = qubits
                 rho_ij = self._get_marginal((i, j))
-                rho_i = self._get_marginal((i,))
-                rho_j = self._get_marginal((j,))
+
+                way_1 = False   
+                if way_1:
+                    # Way 1 -> tr_{i bar}(rho) = rho_{i} 
+                    rho_i = self._get_marginal((i,))
+                    rho_j = self._get_marginal((j,))
+                else:
+                    # Way 2 -> tr_{j bar}(rho_{ij}) = rho_{i} 
+                    rho_i, _ = self._partial_trace(self.unfold(rho_ij), [1], full_space=False)
+                    rho_j, _ = self._partial_trace(self.unfold(rho_ij), [0], full_space=False)
+
                 lam_ij = rho_ij - np.kron(rho_i, rho_j)
                 self._cumulants[qubits] = lam_ij
                 
@@ -349,7 +359,7 @@ class ClusterExpansionApprox:
     def one_qubit_marginals(self) -> List[np.ndarray]:
         """Return list [rho₀, rho₁, …, rho_{N-1}] of (2x2) density matrices."""
         return [self._get_marginal((p,)) for p in range(self.N)]
-
+       
     def mean_field_state(self) -> np.ndarray:
         """Return rho_mf = ⊗_{k=0}^{N-1} rho_k ."""
         if self._mean_field_state is None:
